@@ -305,6 +305,9 @@ func ConfigKeyChecker(key string, instanceType instancetype.Type) (func(value st
 	}
 
 	if instanceType == instancetype.Any || instanceType == instancetype.VM {
+		if strings.HasPrefix(key, "raw.qemu.config.") {
+			return validate.IsAny, nil
+		}
 		if f, ok := InstanceConfigKeysVM[key]; ok {
 			return f, nil
 		}
