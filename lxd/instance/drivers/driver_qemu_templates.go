@@ -2,6 +2,8 @@ package drivers
 
 import (
 	"fmt"
+	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -804,4 +806,153 @@ func qemuTPM(opts *qemuTPMOpts) []cfgSection {
 			{key: "tpmdev", value: tpmdev},
 		},
 	}}
+}
+
+var rawConfigSectionWithIndex = regexp.MustCompile(`^(.+)\[\d+\]$`)
+var rawConfigPattern = regexp.MustCompile(`^raw\.qemu\.config\.([^.]+)(?:\.(.+))?$`)
+
+func extractSectionName(rawSectionName string) string {
+	return rawConfigSectionWithIndex.FindStringSubmatch(rawSectionName)[1]
+}
+
+func sectionMatches(rawKey string, rawSectionName string) bool {
+	matches := rawConfigPattern.FindStringSubmatch(rawKey)
+	return matches[1] == rawSectionName
+}
+
+func qemuRawCfgOverride(cfg []cfgSection, expandedConfig map[string]string) []cfgSection {
+	// Normalize all keys by copying to a temporary map and appending the "[0]"
+	// index when no index is specified
+	tmp := map[string]string{}
+
+	for rawKey, value := range expandedConfig {
+		if strings.HasPrefix(rawKey, "raw.qemu.config.") {
+			matches := rawConfigPattern.FindStringSubmatch(rawKey)
+			if len(matches) == 0 {
+				panic("should have matched")
+			}
+			if !rawConfigSectionWithIndex.MatchString(matches[1]) {
+				// section was specified without an index, so assume index 0
+				rawKey = fmt.Sprintf("raw.qemu.config.%s[0]", matches[1])
+				if matches[2] != "" {
+					// also matched entry, so it must be appended to the rawKey
+					rawKey = fmt.Sprintf("%s.%s", rawKey, matches[2])
+				}
+			}
+			tmp[rawKey] = value
+		}
+	}
+
+	if len(tmp) == 0 {
+		// If no keys are found, we return the cfg unmodified.
+		return cfg
+	}
+
+	newCfg := []cfgSection{}
+	sectionNameCountMap := map[string]uint{}
+
+	for _, section := range cfg {
+		count, ok := sectionNameCountMap[section.name]
+		if ok {
+			sectionNameCountMap[section.name] = count + 1
+		} else {
+			sectionNameCountMap[section.name] = 1
+		}
+		index := sectionNameCountMap[section.name] - 1
+		sectionConfigKey := fmt.Sprintf("raw.qemu.config.%s[%d]", section.name, index)
+
+		if val, ok := tmp[sectionConfigKey]; ok {
+			if val == "" {
+				// user explicitly deleted section
+				delete(tmp, sectionConfigKey)
+				continue
+			}
+		}
+
+		// make a copy of the section
+		newSection := cfgSection{
+			name:    section.name,
+			comment: section.comment,
+		}
+
+		for _, entry := range section.entries {
+			entryConfigKey := fmt.Sprintf("%s.%s", sectionConfigKey, entry.key)
+
+			newEntry := cfgEntry{
+				key:   entry.key,
+				value: entry.value,
+			}
+
+			if val, ok := tmp[entryConfigKey]; ok {
+				// override
+				delete(tmp, entryConfigKey)
+				newEntry.value = val
+			}
+
+			newSection.entries = append(newSection.entries, newEntry)
+		}
+
+		// processed all modifications for the current section, now
+		// handle new entries
+		for rawKey, rawValue := range tmp {
+			matches := rawConfigPattern.FindStringSubmatch(rawKey)
+			if len(matches) != 3 || matches[2] == "" || !sectionMatches(sectionConfigKey, matches[1]) {
+				continue
+			}
+			newEntry := cfgEntry{
+				key:   matches[2],
+				value: rawValue,
+			}
+			newSection.entries = append(newSection.entries, newEntry)
+			delete(tmp, rawKey)
+		}
+
+		newCfg = append(newCfg, newSection)
+	}
+
+	sectionMap := map[string]cfgSection{}
+	rawKeys := []string{}
+	for rawKey := range tmp {
+		rawKeys = append(rawKeys, rawKey)
+	}
+
+	// sort to have deterministic output (can't rely on map
+	// iteration order)
+	sort.Strings(rawKeys)
+
+	// now process new sections
+	for _, rawKey := range rawKeys {
+		matches := rawConfigPattern.FindStringSubmatch(rawKey)
+		if len(matches) != 3 {
+			continue
+		}
+		rawSectionName := matches[1]
+		sectionName := extractSectionName(rawSectionName)
+		section, found := sectionMap[rawSectionName]
+		if !found {
+			section = cfgSection{
+				name: sectionName,
+			}
+		}
+		section.entries = append(section.entries, cfgEntry{
+			key:   matches[2],
+			value: tmp[rawKey],
+		})
+		sectionMap[rawSectionName] = section
+	}
+
+	rawSectionNames := []string{}
+	for rawSectionName := range sectionMap {
+		rawSectionNames = append(rawSectionNames, rawSectionName)
+	}
+
+	// sort to have deterministic output (can't rely on map
+	// iteration order)
+	sort.Strings(rawSectionNames)
+
+	for _, rawSectionName := range rawSectionNames {
+		newCfg = append(newCfg, sectionMap[rawSectionName])
+	}
+
+	return newCfg
 }

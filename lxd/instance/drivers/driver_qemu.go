@@ -2788,6 +2788,8 @@ func (d *qemu) generateQemuConfigFile(mountInfo *storagePools.MountInfo, busName
 		return "", nil, fmt.Errorf("Failed writing agent mounts file: %w", err)
 	}
 
+	// process any user-specified overrides
+	cfg = qemuRawCfgOverride(cfg, d.expandedConfig)
 	// Write the config file to disk.
 	sb := qemuStringifyCfg(cfg...)
 	configPath := filepath.Join(d.LogPath(), "qemu.conf")
