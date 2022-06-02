@@ -477,6 +477,11 @@ func (op *Operation) Render() (string, *api.Operation, error) {
 	}
 
 	// Local server name
+	var err error
+	serverName, err := getServerName(op)
+	if err != nil {
+		return "", nil, err
+	}
 
 	op.lock.Lock()
 	retOp := &api.Operation{
@@ -490,7 +495,7 @@ func (op *Operation) Render() (string, *api.Operation, error) {
 		Resources:   resources,
 		Metadata:    op.metadata,
 		MayCancel:   op.mayCancel(),
-		Location:    op.state.ServerName,
+		Location:    serverName,
 	}
 
 	if op.err != nil {
