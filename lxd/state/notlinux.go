@@ -12,5 +12,4 @@ import (
 type State struct {
 	Events      *events.Server
 	ShutdownCtx context.Context
-	ServerName  string
 }
