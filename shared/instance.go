@@ -277,6 +277,8 @@ var InstanceConfigKeysVM = map[string]func(value string) error{
 	// Caller is responsible for full validation of any raw.* value.
 	"raw.qemu": validate.IsAny,
 
+	"raw.qemu.disable-reset-handler": validate.IsBool,
+
 	"security.agent.metrics": validate.Optional(validate.IsBool),
 	"security.secureboot":    validate.Optional(validate.IsBool),
 

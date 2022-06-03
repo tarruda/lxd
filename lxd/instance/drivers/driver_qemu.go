@@ -380,7 +380,7 @@ func (d *qemu) getMonitorEventHandler() func(event string, data map[string]any) 
 			}
 		}
 
-		if event == "RESET" {
+		if event == "RESET" && !shared.IsTrue(d.expandedConfig["raw.qemu.disable-reset-handler"]) {
 			// As we cannot start QEMU with the -no-reboot flag, because we have to issue a
 			// system_reset QMP command to have the devices bootindex applied, then we need to handle
 			// the RESET events triggered from a guest-reset operation and prevent QEMU internally
