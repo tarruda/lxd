@@ -1,6 +1,7 @@
 package drivers
 
 import (
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -1467,6 +1468,33 @@ func TestQemuConfigTemplates(t *testing.T) {
 		}}
 		for _, tc := range testCases {
 			runTest(tc.expected, qemuRawCfgOverride(tc.cfg, tc.overrides))
+		}
+	})
+
+	t.Run("qemu_extract_raw_config_keys", func(t *testing.T) {
+		input := map[string]string{
+			"raw.qemu.config.global.key1":    "val1",
+			"raw.qemu.config.global.key3":    "val3",
+			"raw.qemu.config.global[0].key2": "val2",
+			"raw.qemu.config.global[1].key1": "val3",
+			"raw.qemu.config.global[4].key2": "val4",
+			"raw.qemu.config.global":         "",
+			"raw.qemu.config.global[4]":      "",
+			"raw.qemu.config.global[5]":      "",
+		}
+		expected := map[rawConfigKey]string{
+			{"global", 0, "key1"}: "val1",
+			{"global", 0, "key3"}: "val3",
+			{"global", 0, "key2"}: "val2",
+			{"global", 1, "key1"}: "val3",
+			{"global", 4, "key2"}: "val4",
+			{"global", 0, ""}:     "",
+			{"global", 4, ""}:     "",
+			{"global", 5, ""}:     "",
+		}
+		actual := qemuExtractRawConfigKeys(input)
+		if !reflect.DeepEqual(expected, actual) {
+			t.Errorf("Expected: %v. Got: %v", expected, actual)
 		}
 	})
 }
